@@ -1,0 +1,156 @@
+---
+title: "Getting Started with kalshiR"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with kalshiR}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse  = TRUE,
+  comment   = "#>",
+  eval      = FALSE   # Don't run chunks — no live API in CRAN checks
+)
+```
+
+## Overview
+
+`kalshiR` gives you a tidy R interface to the [Kalshi](https://kalshi.com)
+prediction market exchange. You can:
+
+- Browse markets, events, and series
+- Pull live and historical price data
+- View your portfolio balance and positions
+- Place, amend, and cancel orders
+
+This vignette covers installation, authentication setup, and your first API
+calls. See the **Market Data** and **Trading** vignettes for deeper coverage.
+
+---
+
+## Installation
+
+```{r install}
+# Install from GitHub (until on CRAN)
+# install.packages("pak")
+pak::pkg_install("yourname/kalshiR")
+```
+
+---
+
+## Authentication
+
+Kalshi uses RSA asymmetric key authentication. Here's how to set it up:
+
+### Step 1: Create an API key on Kalshi
+
+1. Log in to [kalshi.com](https://kalshi.com) (or [demo.kalshi.co](https://demo.kalshi.co) for the demo environment).
+2. Navigate to **Account & Security → API Keys → Create Key**.
+3. Save the **private key** (`.key` file) somewhere secure on your machine.
+4. Copy the **API Key ID** (it looks like a UUID).
+
+### Step 2: Load your credentials in R
+
+```{r auth}
+library(kalshiR)
+
+creds <- kalshi_auth(
+  api_key_id       = "a952bcbe-ec3b-4b5b-b8f9-11dae589608c",  # your key ID
+  private_key_path = "~/.kalshi/kalshi.key",                   # path to .key file
+  env              = "production"   # or "demo" for the test environment
+)
+
+# Set globally — now all functions find credentials automatically
+kalshi_set_auth(creds)
+```
+
+> **Security tip**: Never hard-code your API Key ID or key path in scripts
+> you'll share. Use environment variables instead:
+
+```{r auth-env}
+# In your .Renviron file (run usethis::edit_r_environ() to open it):
+# KALSHI_API_KEY_ID=a952bcbe-ec3b-4b5b-b8f9-11dae589608c
+# KALSHI_KEY_PATH=~/.kalshi/kalshi.key
+
+creds <- kalshi_auth(
+  api_key_id       = Sys.getenv("KALSHI_API_KEY_ID"),
+  private_key_path = Sys.getenv("KALSHI_KEY_PATH")
+)
+kalshi_set_auth(creds)
+```
+
+---
+
+## Your First Requests
+
+### Browse series
+
+A **series** is a collection of related markets, such as "NYC Daily High
+Temperature" or "Federal Reserve Rate Decision".
+
+```{r series}
+# Get metadata for a specific series
+get_series("KXHIGHNY")
+
+# List all series in the Economics category
+get_series_list(category = "Economics")
+```
+
+### Browse markets
+
+```{r markets}
+# All currently open markets in the KXHIGHNY series
+markets <- get_markets(series_ticker = "KXHIGHNY", status = "open")
+markets
+
+# A single market by its ticker
+get_market("KXHIGHNY-23NOV07-T60")
+```
+
+### Check the orderbook
+
+```{r orderbook}
+# Top 5 price levels on each side
+ob <- get_orderbook("KXHIGHNY-23NOV07-T60", depth = 5)
+ob
+
+# Implied probabilities
+ob$implied_prob <- price_to_prob(ob$price_cents)
+ob
+```
+
+### Get your account balance
+
+```{r balance}
+# Requires authentication
+get_balance()
+```
+
+---
+
+## Demo vs Production
+
+The demo environment at `demo.kalshi.co` is a safe sandbox with fake money.
+It mirrors the production API exactly, so it's ideal for testing your code.
+
+```{r demo}
+demo_creds <- kalshi_auth(
+  api_key_id       = Sys.getenv("KALSHI_DEMO_KEY_ID"),
+  private_key_path = Sys.getenv("KALSHI_DEMO_KEY_PATH"),
+  env              = "demo"
+)
+```
+
+Pass `demo_creds` explicitly to any function, or call
+`kalshi_set_auth(demo_creds)` to use it globally.
+
+---
+
+## Next Steps
+
+- **`vignette("market-data")`** — deep dive into series, events, candlesticks,
+  and historical data.
+- **`vignette("trading")`** — placing orders, managing positions, and checking
+  fills.
