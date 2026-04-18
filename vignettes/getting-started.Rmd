@@ -71,11 +71,11 @@ kalshi_set_auth(creds)
 
 ```{r auth-env}
 # In your .Renviron file (run usethis::edit_r_environ() to open it):
-# KALSHI_API_KEY_ID=a952bcbe-ec3b-4b5b-b8f9-11dae589608c
+# KALSHI_API_KEY=a952bcbe-ec3b-4b5b-b8f9-11dae589608c
 # KALSHI_KEY_PATH=~/.kalshi/kalshi.key
 
 creds <- kalshi_auth(
-  api_key_id       = Sys.getenv("KALSHI_API_KEY_ID"),
+  api_key_id       = Sys.getenv("KALSHI_API_KEY"),
   private_key_path = Sys.getenv("KALSHI_KEY_PATH")
 )
 kalshi_set_auth(creds)
@@ -136,11 +136,8 @@ The demo environment at `demo.kalshi.co` is a safe sandbox with fake money.
 It mirrors the production API exactly, so it's ideal for testing your code.
 
 ```{r demo}
-demo_creds <- kalshi_auth(
-  api_key_id       = Sys.getenv("KALSHI_DEMO_KEY_ID"),
-  private_key_path = Sys.getenv("KALSHI_DEMO_KEY_PATH"),
-  env              = "demo"
-)
+demo_creds <- demo_creds()
+
 ```
 
 Pass `demo_creds` explicitly to any function, or call

@@ -1,134 +1,149 @@
-#' @title Kalshi Utility Functions
-#'
-#' @description
-#' Internal helpers for tidying API responses into tibbles, converting
-#' Kalshi's integer cent prices to dollars, parsing timestamps, and
-#' safely extracting nested list fields.
-#'
-#' @name utils
-NULL
+# R/utils.R
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared utility functions used throughout kalshiR.
+#
+# Exported helpers:
+#   cents_to_dollars()   – convert integer cents to numeric dollars
+#   parse_kalshi_ts()    – convert Kalshi ISO-8601 strings to POSIXct UTC
+#   price_to_prob()      – convert 0-100 cent price to 0-1 probability
+#   records_to_tibble()  – safely coerce a list of records to a tibble
+#
+# Internal helpers:
+#   %||%                 – NULL-coalescing operator (re-exported from rlang)
+#   .to_kalshi_ms()      – convert timestamp to millisecond string for API
+# ─────────────────────────────────────────────────────────────────────────────
 
+#' @importFrom rlang %||%
+#' @export
+rlang::`%||%`
 
-#' Convert a list of records to a tibble
+# ── Exported helpers ──────────────────────────────────────────────────────────
+
+#' Convert cents to dollars
 #'
-#' Takes a list of named lists (as returned by Kalshi's JSON responses after
-#' parsing) and coerces it into a flat tibble. Nested list columns are kept
-#' as list-columns; scalar fields become regular columns.
+#' Kalshi returns many monetary values as integer cents. This helper divides
+#' by 100 and returns a plain numeric vector.
 #'
-#' @param records `list`. A list of named lists, one per row.
-#' @param ... Additional arguments passed to [tibble::as_tibble()].
+#' @param x Integer or numeric vector of cent values.
+#' @return Numeric vector of dollar values.
+#' @export
+#' @examples
+#' cents_to_dollars(4250L)   # 42.50
+#' cents_to_dollars(c(100L, 5000L))
+cents_to_dollars <- function(x) {
+  if (is.null(x)) return(NA_real_)
+  as.numeric(x) / 100
+}
+
+#' Parse a Kalshi timestamp string to POSIXct
 #'
-#' @return A `tibble`. Returns an empty tibble if `records` is empty or NULL.
+#' Kalshi timestamps are ISO-8601 strings such as
+#' `"2024-11-05T12:00:00Z"` or `"2024-11-05T12:00:00.000Z"`.
+#' This function converts them to POSIXct with UTC timezone.
 #'
-#' @keywords internal
+#' Accepts:
+#' - Character vectors (single or multiple values)
+#' - `NA` / `NULL` (returns `NA` POSIXct)
+#' - Already-POSIXct values (passed through unchanged)
+#'
+#' @param x Character vector of ISO-8601 timestamp strings, or POSIXct.
+#' @return POSIXct vector in UTC.
+#' @export
+#' @examples
+#' parse_kalshi_ts("2024-11-05T12:00:00Z")
+#' parse_kalshi_ts(NA_character_)
+parse_kalshi_ts <- function(x) {
+  if (is.null(x) || length(x) == 0) {
+    return(as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"))
+  }
+  if (inherits(x, "POSIXct")) return(x)
+
+  # Replace trailing Z with +00:00 for strptime compatibility, then parse
+  x_clean <- sub("Z$", "+00:00", as.character(x))
+  as.POSIXct(x_clean, format = "%Y-%m-%dT%H:%M:%OS%z", tz = "UTC")
+}
+
+#' Convert a Kalshi cent price to a probability
+#'
+#' Kalshi "yes" prices range from 1–99 cents and represent the market's
+#' implied probability. Divides by 100 to return a 0–1 probability.
+#'
+#' @param price Integer or numeric; a value in \[1, 99\].
+#' @return Numeric in \[0.01, 0.99\].
+#' @export
+#' @examples
+#' price_to_prob(65)   # 0.65
+price_to_prob <- function(price) {
+  if (is.null(price)) return(NA_real_)
+  as.numeric(price) / 100
+}
+
+#' Coerce a list of records to a tibble
+#'
+#' Used internally to turn the list-of-lists that Kalshi returns into a
+#' tidy tibble. Handles three edge cases cleanly:
+#' - `NULL` input → zero-row tibble
+#' - Empty list → zero-row tibble
+#' - Single-element list → 1-row tibble (no silent vector recycling)
+#'
+#' @param records A list of named lists (one per row).
+#' @param ... Additional arguments passed to [dplyr::bind_rows()].
+#' @return A [tibble::tibble()].
+#' @export
 records_to_tibble <- function(records, ...) {
   if (is.null(records) || length(records) == 0) {
     return(tibble::tibble())
   }
-  # Each element of records is a named list representing one row.
-  # We bind them together row-wise via dplyr::bind_rows which handles
-  # mismatched columns gracefully (fills with NA).
+  # Wrap single records in a list so bind_rows treats them as one row
+  if (is.list(records) && !is.list(records[[1]])) {
+    records <- list(records)
+  }
   dplyr::bind_rows(
-    purrr::map(records, ~ tibble::as_tibble_row(flatten_record(.x)))
+    purrr::map(records, function(r) {
+      # Replace NULL fields with NA so bind_rows doesn't drop the column
+      r[vapply(r, is.null, logical(1))] <- NA
+      tibble::as_tibble(r)
+    }),
+    ...
   )
 }
 
+# ── Internal helpers ──────────────────────────────────────────────────────────
 
-#' Flatten a single API record for tabular display
+#' Convert a timestamp to a Kalshi millisecond string
 #'
-#' Recursively flattens a named list one level deep. Nested lists that are
-#' themselves records (named lists) are kept as list-columns. Vectors of
-#' length > 1 become list-columns.
+#' Kalshi time-filter parameters (e.g. `min_ts`, `max_ts`) are expressed as
+#' **milliseconds since the Unix epoch** passed as a query-string integer.
 #'
-#' @param record A named list.
-#' @return A named list suitable for [tibble::as_tibble_row()].
+#' Accepts:
+#' - POSIXct objects
+#' - ISO-8601 character strings (parsed via [parse_kalshi_ts()])
+#' - Numeric/integer already in milliseconds (passed through)
+#' - `NULL` (returns `NULL` so the parameter is simply omitted)
+#'
+#' @param ts A timestamp in one of the accepted forms, or `NULL`.
+#' @return A character string of milliseconds, or `NULL`.
 #' @keywords internal
-flatten_record <- function(record) {
-  purrr::imap(record, function(val, nm) {
-    if (is.null(val)) {
-      NA
-    } else if (is.list(val)) {
-      # Keep as list (will become a list-column)
-      list(val)
-    } else if (length(val) > 1) {
-      list(val)
-    } else {
-      val
-    }
-  })
-}
+.to_kalshi_ms <- function(ts) {
+  if (is.null(ts)) return(NULL)
 
+  if (is.numeric(ts) || is.integer(ts)) {
+    # Assume already milliseconds if > 1e10, else seconds — convert
+    val <- if (max(abs(ts), na.rm = TRUE) > 1e10) ts else ts * 1000L
+    return(as.character(round(val)))
+  }
 
-#' Convert Kalshi cent integer to dollar numeric
-#'
-#' Kalshi's API returns monetary values as integers in cents (e.g. a balance
-#' of `$12.50` is returned as `1250`). This function divides by 100 and
-#' returns a numeric dollar amount.
-#'
-#' @param cents `numeric`. Integer cent value(s) from the Kalshi API.
-#'
-#' @return `numeric`. Dollar value(s), rounded to 2 decimal places.
-#'
-#' @examples
-#' cents_to_dollars(1250)  # returns 12.50
-#' cents_to_dollars(c(100, 250, 9999))  # returns c(1.00, 2.50, 99.99)
-#'
-#' @export
-cents_to_dollars <- function(cents) {
-  round(as.numeric(cents) / 100, 2)
-}
+  if (is.character(ts)) {
+    # ts <- parse_kalshi_ts(ts)
+    ts <- as.POSIXct(ts, tz = "UTC", format = "%Y-%m-%dT%H:%M:%SZ")
+  }
 
+  if (inherits(ts, "POSIXct")) {
+    return(as.character(round(as.numeric(ts) * 1000)))
+  }
 
-#' Parse a Kalshi ISO 8601 timestamp to a POSIXct datetime
-#'
-#' Kalshi returns timestamps as ISO 8601 strings, e.g.
-#' `"2023-11-07T05:31:56Z"`. This function converts them to R `POSIXct`
-#' objects in UTC.
-#'
-#' @param ts `character`. One or more ISO 8601 timestamp strings.
-#'
-#' @return `POSIXct` in UTC timezone.
-#'
-#' @examples
-#' parse_kalshi_ts("2023-11-07T05:31:56Z")
-#'
-#' @export
-parse_kalshi_ts <- function(ts) {
-  as.POSIXct(ts, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC")
-}
-
-
-#' Safely extract a field from a nested list
-#'
-#' Returns `NULL` (or a default) rather than throwing an error if the field
-#' path does not exist.
-#'
-#' @param x A list.
-#' @param ... Field names as unquoted symbols or strings forming the path.
-#' @param .default Value to return if the path is not found. Default `NA`.
-#'
-#' @return The value at the specified path, or `.default`.
-#'
-#' @keywords internal
-safe_pluck <- function(x, ..., .default = NA) {
-  purrr::pluck(x, ..., .default = .default)
-}
-
-
-#' Convert a Kalshi yes-price (0–100 cents) to a probability
-#'
-#' Kalshi prices are quoted in cents from 0 to 100, representing the implied
-#' probability of the YES outcome. This function converts to a 0–1 probability.
-#'
-#' @param price_cents `numeric`. Price in cents (0–100).
-#'
-#' @return `numeric`. Probability between 0 and 1.
-#'
-#' @examples
-#' price_to_prob(65)   # returns 0.65
-#' price_to_prob(100)  # returns 1.00
-#'
-#' @export
-price_to_prob <- function(price_cents) {
-  as.numeric(price_cents) / 100
+  rlang::abort(
+    paste0("Cannot convert object of class '", class(ts)[1], "' to Kalshi ms timestamp."),
+    call = NULL
+  )
 }

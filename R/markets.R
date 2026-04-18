@@ -49,8 +49,7 @@ get_series <- function(series_ticker, creds = NULL) {
 
   resp <- kalshi_get(
     endpoint      = paste0("/series/", series_ticker),
-    creds         = creds,
-    authenticated = !is.null(creds) || !is.null(get0("creds", envir = .kalshi_env))
+    creds         = creds
   )
 
   series <- resp[["series"]]
@@ -98,13 +97,12 @@ get_series_list <- function(category  = NULL,
   if (all_pages) {
     records <- kalshi_paginate(
       endpoint      = "/series",
-      result_key    = "series",
-      query         = query,
-      creds         = creds,
-      authenticated = use_auth
+      list_key    = "series",
+      params         = query,
+      creds         = cred
     )
   } else {
-    resp    <- kalshi_get("/series", query = query, creds = creds, authenticated = use_auth)
+    resp    <- kalshi_get("/series", params = params, creds = creds)
     records <- resp[["series"]]
   }
 
@@ -157,13 +155,12 @@ get_events <- function(series_ticker = NULL,
   if (all_pages) {
     records <- kalshi_paginate(
       endpoint      = "/events",
-      result_key    = "events",
-      query         = query,
-      creds         = creds,
-      authenticated = use_auth
+      listt_key    = "events",
+      params         = query,
+      creds         = creds
     )
   } else {
-    resp    <- kalshi_get("/events", query = query, creds = creds, authenticated = use_auth)
+    resp    <- kalshi_get("/events", params = params, creds = creds)
     records <- resp[["events"]]
   }
 
@@ -187,7 +184,7 @@ get_events <- function(series_ticker = NULL,
 get_event <- function(event_ticker, creds = NULL) {
   use_auth <- !is.null(creds) || !is.null(get0("creds", envir = .kalshi_env))
 
-  resp  <- kalshi_get(paste0("/events/", event_ticker), creds = creds, authenticated = use_auth)
+  resp  <- kalshi_get(paste0("/events/", event_ticker), creds = creds)
   event <- resp[["event"]]
 
   if (is.null(event)) {
@@ -258,13 +255,12 @@ get_markets <- function(series_ticker = NULL,
   if (all_pages) {
     records <- kalshi_paginate(
       endpoint      = "/markets",
-      result_key    = "markets",
-      query         = query,
-      creds         = creds,
-      authenticated = use_auth
+      list_key    = "markets",
+      params         = query,
+      creds         = creds
     )
   } else {
-    resp    <- kalshi_get("/markets", query = query, creds = creds, authenticated = use_auth)
+    resp    <- kalshi_get("/markets", params = query, creds = creds)
     records <- resp[["markets"]]
   }
 
@@ -291,20 +287,26 @@ get_markets <- function(series_ticker = NULL,
 #'
 #' @export
 get_market <- function(market_ticker, creds = NULL) {
-  use_auth <- !is.null(creds) || !is.null(get0("creds", envir = .kalshi_env))
+  if (length(market_ticker) != 1L || !nzchar(market_ticker)) {
+    cli::cli_abort("{.arg market_ticker} must be a single non-empty string.")
+  }
 
-  resp   <- kalshi_get(paste0("/markets/", market_ticker), creds = creds, authenticated = use_auth)
+  market_ticker <- as.character(market_ticker)[[1L]]
+
+  resp <- kalshi_get(paste0("/markets/", market_ticker), creds = creds)
   market <- resp[["market"]]
-
   if (is.null(market)) {
     cli::cli_abort("No market data returned for ticker {.val {market_ticker}}.")
   }
 
+  # Wrap any list-typed fields so they become list-columns (length 1 each)
+  market <- lapply(market, function(x) {
+    if (is.list(x)) list(x) else x
+  })
+
   tbl <- records_to_tibble(list(market))
   tidy_market_tibble(tbl)
 }
-
-
 # ---------------------------------------------------------------------------
 # Orderbook
 # ---------------------------------------------------------------------------
@@ -337,19 +339,14 @@ get_orderbook <- function(market_ticker, depth = NULL, creds = NULL) {
 
   query <- list(depth = depth)
 
-  resp <- kalshi_get(
-    endpoint      = paste0("/markets/", market_ticker, "/orderbook"),
-    query         = query,
-    creds         = creds,
-    authenticated = use_auth
-  )
+  resp <- kalshi_get(paste0("/markets/", market_ticker, "/orderbook"), creds = creds)
 
   ob <- resp[["orderbook_fp"]] %||% resp[["orderbook"]]
   if (is.null(ob)) {
     cli::cli_abort("No orderbook data returned for {.val {market_ticker}}.")
   }
 
-  # Parse YES side: list of [price_dollars, quantity] pairs
+  # Parse YES side: list of (price_dollars, quantity) pairs
   yes_rows <- parse_ob_side(ob[["yes_dollars"]] %||% ob[["yes"]], "yes")
   no_rows  <- parse_ob_side(ob[["no_dollars"]]  %||% ob[["no"]],  "no")
 
@@ -359,10 +356,26 @@ get_orderbook <- function(market_ticker, depth = NULL, creds = NULL) {
 
   tbl
 }
-
+# Following code suggested 4/15/2026 but rejected
+# get_orderbook <- function(ticker, depth = NULL) {
+#   endpoint <- paste0("/trade-api/v2/markets/", ticker, "/orderbook")
+#
+#   params <- list()
+#
+#   if (!is.null(depth)) {
+#     params[["depth"]] <- depth
+#   }
+#
+#   response <- kalshi_get(
+#     endpoint = endpoint,
+#     params = params
+#   )
+#
+#   return(response)
+# }
 
 #' Parse one side of the orderbook into a tibble
-#' @param levels A list of [price, quantity] pairs.
+#' @param levels A list of (price, quantity) pairs.
 #' @param side `character(1)`. `"yes"` or `"no"`.
 #' @keywords internal
 parse_ob_side <- function(levels, side) {
@@ -376,7 +389,7 @@ parse_ob_side <- function(levels, side) {
   }
 
   rows <- purrr::map(levels, function(pair) {
-    # API returns [price_in_dollars_as_string_or_numeric, quantity]
+    # API returns (price_in_dollars_as_string_or_numeric, quantity)
     # price is 0-100 cents scale
     price <- as.numeric(pair[[1]]) * 100  # convert dollar fraction to cents
     qty   <- as.numeric(pair[[2]])
@@ -438,13 +451,12 @@ get_trades <- function(ticker    = NULL,
   if (all_pages) {
     records <- kalshi_paginate(
       endpoint      = "/markets/trades",
-      result_key    = "trades",
-      query         = query,
-      creds         = creds,
-      authenticated = use_auth
+      list_key    = "trades",
+      params         = query,
+      creds         = creds
     )
   } else {
-    resp    <- kalshi_get("/markets/trades", query = query, creds = creds, authenticated = use_auth)
+    resp    <- kalshi_get("/markets/trades", params = params, creds = creds)
     records <- resp[["trades"]]
   }
 
@@ -512,7 +524,11 @@ get_market_candlesticks <- function(series_ticker,
                      "/markets/", market_ticker,
                      "/candlesticks")
 
-  resp    <- kalshi_get(endpoint, query = query, creds = creds, authenticated = use_auth)
+  resp    <- kalshi_get(
+    paste0("/series/", series_ticker, "/markets/", ticker, "/candlesticks"),
+    params = params,
+    creds  = creds
+  )
   records <- resp[["candlesticks"]]
 
   tbl <- records_to_tibble(records)

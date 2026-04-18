@@ -1,0 +1,316 @@
+---
+title: "Market Data: Candlesticks, History, and Pagination"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Market Data: Candlesticks, History, and Pagination}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse  = TRUE,
+  comment   = "#>",
+  eval      = FALSE   # Set to TRUE only when live creds are available
+)
+```
+
+## Overview
+
+This vignette covers:
+
+1. **Live market data** — browsing markets, orderbooks, recent trades
+2. **Candlestick charts** — OHLCV data for price history
+3. **Historical endpoints** — data before the cutoff date
+4. **Pagination** — handling large result sets with cursors
+
+---
+
+## Setup
+
+```{r auth}
+library(kalshiR)
+library(dplyr)
+library(ggplot2)
+
+kalshi_set_auth(kalshi_auth(
+  key_id      = Sys.getenv("KALSHI_KEY_ID"),
+  private_key = Sys.getenv("KALSHI_KEY_PATH")
+))
+```
+
+---
+
+## 1. Browsing Markets
+
+### List open markets
+
+```{r list-markets}
+# First 50 open markets
+markets <- get_markets(status = "open", limit = 50L)
+glimpse(markets)
+```
+
+`get_markets()` returns a tibble with one row per market. Key columns:
+
+| Column | Description |
+|--------|-------------|
+| `ticker` | Unique market identifier |
+| `title` | Human-readable market question |
+| `status` | `"open"`, `"closed"`, `"settled"` |
+| `yes_bid` | Best yes bid (cents) |
+| `yes_ask` | Best yes ask (cents) |
+| `last_price` | Last traded price (cents) |
+| `volume` | Total volume (contracts) |
+| `close_time` | When the market closes (POSIXct UTC) |
+
+### Filter by series or event
+
+```{r filter-markets}
+# All markets in the INXD series (S&P 500 daily)
+sp500_markets <- get_markets(series_ticker = "INXD", status = "open")
+sp500_markets |>
+  select(ticker, title, yes_bid, yes_ask, volume) |>
+  arrange(desc(volume))
+```
+
+### Get all pages at once
+
+By default, `get_markets()` returns at most `limit` results. Use
+`all_pages = TRUE` to follow cursors automatically:
+
+```{r all-pages}
+# WARNING: may return thousands of rows
+all_markets <- get_markets(status = "open", all_pages = TRUE)
+nrow(all_markets)
+```
+
+> **Tip**: Always start with a small `limit` to check the data shape
+> before requesting `all_pages = TRUE`.
+
+---
+
+## 2. Single Market Detail
+
+```{r single-market}
+mkt <- get_market("INXD-23DEC29-B4900")
+glimpse(mkt)
+```
+
+---
+
+## 3. Orderbook
+
+The orderbook shows the current buy/sell interest at each price level.
+
+```{r orderbook}
+ob <- get_orderbook("INXD-23DEC29-B4900")
+# ob is a list with two data frames: $yes and $no
+ob$yes   # yes-side bids (sorted best → worst)
+ob$no    # no-side bids
+```
+
+Visualise the orderbook depth:
+
+```{r orderbook-plot}
+# Combine both sides for a depth chart
+yes_side <- ob$yes |> mutate(side = "yes")
+no_side  <- ob$no  |> mutate(side = "no")
+depth    <- bind_rows(yes_side, no_side)
+
+ggplot(depth, aes(x = price, y = cumsum(quantity), colour = side)) +
+  geom_step() +
+  scale_colour_manual(values = c(yes = "#2ecc71", no = "#e74c3c")) +
+  labs(title = "Order Book Depth", x = "Price (cents)", y = "Cumulative Contracts") +
+  theme_minimal()
+```
+
+---
+
+## 4. Recent Public Trades
+
+```{r recent-trades}
+trades <- get_trades("INXD-23DEC29-B4900", limit = 100L)
+glimpse(trades)
+
+# Volume-weighted average price of last 100 trades
+trades |>
+  summarise(
+    vwap   = sum(yes_price * count) / sum(count),
+    volume = sum(count)
+  )
+```
+
+---
+
+## 5. Candlestick Charts
+
+`get_market_candlesticks()` returns OHLCV data for a market. The
+`period_interval` is in **minutes** (e.g. `60L` = hourly candles).
+
+```{r candlesticks}
+candles <- get_market_candlesticks(
+  series_ticker   = "INXD",
+  ticker          = "INXD-23DEC29-B4900",
+  period_interval = 60L,         # 60-minute candles
+  start_ts        = Sys.time() - 7 * 24 * 3600,   # last 7 days
+  end_ts          = Sys.time()
+)
+glimpse(candles)
+```
+
+Returned columns include `end_period_ts` (POSIXct), `price_open`,
+`price_high`, `price_low`, `price_close`, and `volume`.
+
+### OHLC candlestick chart
+
+```{r ohlc-chart}
+ggplot(candles, aes(x = end_period_ts)) +
+  # High-low wicks
+  geom_linerange(
+    aes(ymin = price_low, ymax = price_high),
+    colour = "grey60", linewidth = 0.5
+  ) +
+  # Open-close body
+  geom_segment(
+    aes(
+      xend   = end_period_ts,
+      y      = price_open,
+      yend   = price_close,
+      colour = price_close >= price_open
+    ),
+    linewidth = 2
+  ) +
+  scale_colour_manual(
+    values = c("TRUE" = "#2ecc71", "FALSE" = "#e74c3c"),
+    guide  = "none"
+  ) +
+  labs(
+    title = "INXD-23DEC29-B4900 — Hourly Candles",
+    x     = NULL,
+    y     = "Price (cents)"
+  ) +
+  theme_minimal()
+```
+
+### Volume bar chart
+
+```{r volume-chart}
+ggplot(candles, aes(x = end_period_ts, y = volume)) +
+  geom_col(fill = "#3498db", alpha = 0.7) +
+  labs(title = "Hourly Volume", x = NULL, y = "Contracts") +
+  theme_minimal()
+```
+
+---
+
+## 6. Historical Data
+
+Kalshi maintains a **historical cutoff date**. Data older than the cutoff
+must be queried via `/historical/...` endpoints.
+
+```{r historical-cutoff}
+cutoff <- get_historical_cutoff()
+cutoff$cutoff_ts   # POSIXct — data older than this → use historical endpoints
+```
+
+### Historical markets (resolved/expired)
+
+```{r historical-markets}
+old_markets <- get_historical_markets(
+  series_ticker = "INXD",
+  limit         = 100L
+)
+glimpse(old_markets)
+```
+
+### Historical candlesticks
+
+```{r historical-candles}
+hist_candles <- get_historical_candlesticks(
+  series_ticker   = "INXD",
+  ticker          = "INXD-23NOV30-B4500",
+  period_interval = 1440L,   # daily candles
+  start_ts        = "2023-11-01T00:00:00Z",
+  end_ts          = "2023-11-30T23:59:59Z"
+)
+glimpse(hist_candles)
+```
+
+### Historical public trades
+
+```{r historical-trades}
+hist_trades <- get_historical_trades(
+  ticker   = "INXD-23NOV30-B4500",
+  limit    = 500L,
+  all_pages = TRUE
+)
+nrow(hist_trades)
+```
+
+---
+
+## 7. Pagination Patterns
+
+All list functions share the same cursor-based pagination interface.
+
+### Manual pagination
+
+```{r manual-pagination}
+# Page 1
+page1 <- get_markets(status = "open", limit = 10L)
+cursor <- attr(page1, "next_cursor")   # NULL if no more pages
+
+# Page 2 (if cursor is not NULL)
+if (!is.null(cursor)) {
+  page2 <- get_markets(status = "open", limit = 10L, cursor = cursor)
+}
+```
+
+### Automatic pagination
+
+```{r auto-pagination}
+# kalshi_paginate() is used internally by all list functions
+# when all_pages = TRUE
+all_events <- get_events(all_pages = TRUE)
+message("Total events fetched: ", nrow(all_events))
+```
+
+### Chunked pagination for large datasets
+
+When you want all results but want to process them in chunks (to avoid
+memory issues or to show progress):
+
+```{r chunked}
+# Use the cursor manually to stream results
+results <- list()
+cursor  <- NULL
+
+repeat {
+  page   <- get_trades("INXD-23DEC29-B4900",
+                        limit  = 100L,
+                        cursor = cursor)
+  results <- c(results, list(page))
+
+  cursor <- attr(page, "next_cursor")
+  if (is.null(cursor) || nrow(page) == 0L) break
+}
+
+all_trades <- dplyr::bind_rows(results)
+nrow(all_trades)
+```
+
+---
+
+## Summary
+
+| Data type | Live endpoint | Historical endpoint |
+|-----------|---------------|---------------------|
+| Markets | `get_markets()` | `get_historical_markets()` |
+| Candlesticks | `get_market_candlesticks()` | `get_historical_candlesticks()` |
+| Public trades | `get_trades()` | `get_historical_trades()` |
+| Your fills | `get_fills()` | `get_historical_fills()` |
+| Your orders | `get_orders()` | `get_historical_orders()` |
+
+Use `get_historical_cutoff()` to determine which endpoint applies for
+a given time range.

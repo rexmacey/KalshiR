@@ -1,0 +1,398 @@
+---
+title: "Trading: Orders, Positions, and Fills"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Trading: Orders, Positions, and Fills}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+> ⚠️ **Important**: The code in this vignette places real orders and
+> moves real money. Use the **demo environment** while learning.
+> See `vignette("getting-started")` for demo setup instructions.
+
+## Overview
+
+This vignette covers the full trading workflow:
+
+1. Checking your balance
+2. Placing limit and market orders
+3. Monitoring and amending open orders
+4. Cancelling orders
+5. Viewing positions and fills
+6. Batch operations
+
+---
+
+## Setup (Demo Environment)
+
+```{r auth}
+library(kalshiR)
+library(dplyr)
+
+# Always test with demo credentials first
+demo_creds <- demo_creds()
+```
+
+---
+
+## 1. Check Your Balance
+
+```{r balance}
+bal <- get_balance()
+print(bal)
+# # A tibble: 1 × 3
+#   available_balance portfolio_value bonus_balance
+#               <dbl>           <dbl>         <dbl>
+# 1             498.3            12.5             0
+```
+
+All values are in **dollars** (kalshiR converts from the API's cent values).
+
+- `available_balance`: Cash you can use to place new orders.
+- `portfolio_value`: Mark-to-market value of your open positions.
+- `bonus_balance`: Promotional credit (cannot be withdrawn).
+
+---
+
+## 2. Placing Orders
+
+### Limit orders
+
+A limit order fills only at your specified price or better. You pay the
+price upfront (for yes) or `100 - price` (for no).
+
+```{r limit-order}
+# Buy 5 "yes" contracts at 30 cents each
+# Cost = 5 × $0.30 = $1.50 (deducted from available_balance immediately)
+order <- create_order(
+  ticker    = "INXD-23DEC29-B4900",
+  side      = "yes",
+  type      = "limit",
+  count     = 5L,
+  yes_price = 30L    # integer cents, 1–99
+)
+
+print(order)
+# # A tibble: 1 × 10
+#   order_id   ticker               status  yes_price no_price type  side  count remaining_count created_time
+#   <chr>      <chr>                <chr>       <int>    <int> <chr> <chr> <int>           <int> <dttm>
+# 1 ord-abc123 INXD-23DEC29-B4900  resting        30       NA limit yes       5               5 2024-03-01...
+```
+
+> **Price convention**: For a yes-limit order, specify `yes_price`.
+> For a no-limit order, specify `no_price`. You cannot specify both.
+
+### Market orders
+
+A market order fills immediately at the best available price. Do **not**
+specify a price for market orders.
+
+```{r market-order}
+# Buy 1 "yes" at market (fills at current best ask)
+market_order <- create_order(
+  ticker = "INXD-23DEC29-B4900",
+  side   = "yes",
+  type   = "market",
+  count  = 1L
+)
+```
+
+> **Warning**: Market orders on low-liquidity markets may fill at
+> unfavourable prices. Check the orderbook first with `get_orderbook()`.
+
+---
+
+## 3. Monitoring Orders
+
+### List open orders
+
+```{r get-orders}
+open_orders <- get_orders(status = "resting")
+open_orders |>
+  select(order_id, ticker, side, yes_price, no_price, count, remaining_count)
+```
+
+### Get a specific order
+
+```{r get-order}
+order_id <- order$order_id
+latest   <- get_order(order_id)
+latest$status           # "resting", "filled", "cancelled", etc.
+latest$remaining_count  # contracts still open
+```
+
+### Full order lifecycle poll
+
+```{r poll-order}
+# Poll until filled or 60 seconds elapsed
+deadline <- Sys.time() + 60
+
+repeat {
+  latest <- get_order(order_id)
+  if (latest$status != "resting") break
+  if (Sys.time() > deadline) {
+    message("Order still resting after 60s")
+    break
+  }
+  Sys.sleep(2)
+}
+
+message("Final status: ", latest$status)
+```
+
+---
+
+## 4. Amending Orders
+
+You can change the price or quantity of a resting order without cancelling
+and re-submitting. At least one of `yes_price`, `no_price`, or `count`
+must be supplied.
+
+```{r amend-order}
+# Lower the price (less aggressive bid)
+amended <- amend_order(
+  order_id  = order_id,
+  yes_price = 25L    # was 30
+)
+amended$yes_price   # 25
+```
+
+### Decrease order size
+
+To reduce quantity only (without changing price), use `decrease_order()`:
+
+```{r decrease-order}
+# Reduce from 5 to 3 contracts (reduce_by = 2)
+smaller <- decrease_order(order_id = order_id, reduce_by = 2L)
+smaller$remaining_count   # should be 3
+```
+
+---
+
+## 5. Cancelling Orders
+
+```{r cancel-order}
+cancelled <- cancel_order(order_id)
+cancelled$status   # "cancelled"
+```
+
+### Cancel all open orders for a market
+
+```{r cancel-all}
+to_cancel <- get_orders(
+  ticker = "INXD-23DEC29-B4900",
+  status = "resting"
+)
+
+for (oid in to_cancel$order_id) {
+  tryCatch(
+    cancel_order(oid),
+    error = function(e) message("Could not cancel ", oid, ": ", e$message)
+  )
+}
+```
+
+---
+
+## 6. Positions and Fills
+
+### Current positions
+
+```{r positions}
+positions <- get_positions(settled = FALSE)
+positions |>
+  select(ticker, position, market_exposure, realized_pnl, unrealized_pnl)
+```
+
+Column meanings:
+
+| Column | Description |
+|--------|-------------|
+| `position` | Net contracts held (positive = long yes, negative = long no) |
+| `market_exposure` | Cash at risk (dollars) |
+| `realized_pnl` | Profit/loss on closed contracts (dollars) |
+| `unrealized_pnl` | Mark-to-market P&L on open contracts (dollars) |
+
+### Recent fills
+
+```{r fills}
+fills <- get_fills(limit = 50L)
+fills |>
+  select(fill_id, ticker, side, yes_price, count, created_time) |>
+  arrange(desc(created_time))
+```
+
+### P&L summary
+
+```{r pnl}
+fills |>
+  group_by(ticker) |>
+  summarise(
+    total_contracts = sum(count),
+    avg_price       = weighted.mean(yes_price, count),
+    .groups         = "drop"
+  ) |>
+  arrange(desc(total_contracts))
+```
+
+---
+
+## 7. Settlements
+
+When a market resolves, your contracts are settled and cash is credited
+(or debited). View settlement history:
+
+```{r settlements}
+settlements <- get_settlements(limit = 100L)
+settlements |>
+  select(ticker, side, count, yes_price, revenue, settled_time) |>
+  filter(revenue > 0) |>
+  arrange(desc(settled_time))
+```
+
+Each row represents a settled position. `revenue` is the dollar amount
+credited to your account.
+
+---
+
+## 8. Batch Operations
+
+For high-frequency use cases, kalshiR supports placing and cancelling
+up to **20 orders** in a single API call.
+
+### Batch create
+
+```{r batch-create}
+# Build a list of order specifications
+orders_to_place <- list(
+  list(
+    ticker    = "INXD-23DEC29-B4900",
+    side      = "yes",
+    type      = "limit",
+    count     = 2L,
+    yes_price = 28L
+  ),
+  list(
+    ticker    = "INXD-23DEC29-B4950",
+    side      = "no",
+    type      = "limit",
+    count     = 1L,
+    no_price  = 35L
+  )
+)
+
+batch_result <- batch_create_orders(orders_to_place)
+print(batch_result)
+# # A tibble: 2 × 10
+#   order_id   ticker               status  ...
+```
+
+### Batch cancel
+
+```{r batch-cancel}
+# Cancel the orders we just placed
+ids_to_cancel <- batch_result$order_id
+
+batch_cancelled <- batch_cancel_orders(ids_to_cancel)
+all(batch_cancelled$status == "cancelled")  # TRUE
+```
+
+---
+
+## 9. Full Trade Example
+
+Here is a complete end-to-end example on the demo environment:
+
+```{r full-example}
+library(kalshiR)
+library(dplyr)
+
+# 1. Auth
+kalshi_set_auth(kalshi_auth(
+  key_id      = Sys.getenv("KALSHI_DEMO_KEY_ID"),
+  private_key = Sys.getenv("KALSHI_DEMO_KEY_PATH"),
+  env         = "demo"
+))
+
+# 2. Find an open market
+markets <- get_markets(status = "open", limit = 5L)
+ticker  <- markets$ticker[[1]]
+message("Trading: ", ticker)
+
+# 3. Check the orderbook
+ob <- get_orderbook(ticker)
+best_yes_ask <- ob$yes$price[[1]]   # lowest ask = best price to buy yes
+message("Best yes ask: ", best_yes_ask, " cents")
+
+# 4. Check balance before
+bal_before <- get_balance()
+message("Balance before: $", round(bal_before$available_balance, 2))
+
+# 5. Place a conservative limit order (bid well below market)
+order <- create_order(
+  ticker    = ticker,
+  side      = "yes",
+  type      = "limit",
+  count     = 1L,
+  yes_price = max(1L, as.integer(best_yes_ask) - 10L)  # 10 cents below ask
+)
+message("Order placed: ", order$order_id, " (status: ", order$status, ")")
+
+# 6. Wait a moment, check status
+Sys.sleep(3)
+updated <- get_order(order$order_id)
+message("Order status after 3s: ", updated$status)
+
+# 7. Cancel if still resting
+if (updated$status == "resting") {
+  cancelled <- cancel_order(order$order_id)
+  message("Cancelled. Final status: ", cancelled$status)
+}
+
+# 8. Balance after (should be unchanged since order didn't fill)
+bal_after <- get_balance()
+message("Balance after: $", round(bal_after$available_balance, 2))
+```
+
+---
+
+## Error Handling
+
+kalshiR surfaces API errors as R conditions. Common errors:
+
+| HTTP Status | Meaning | Typical cause |
+|-------------|---------|---------------|
+| 400 | Bad request | Invalid order params (price out of range, etc.) |
+| 401 | Unauthorised | Bad key ID or invalid signature |
+| 403 | Forbidden | Attempting to trade a closed market |
+| 404 | Not found | Invalid ticker or order ID |
+| 429 | Rate limited | Too many requests |
+
+```{r error-handling}
+result <- tryCatch(
+  create_order(
+    ticker    = ticker,
+    side      = "yes",
+    type      = "limit",
+    count     = 1L,
+    yes_price = 50L
+  ),
+  httr2_http_400 = function(e) {
+    message("Bad request: ", conditionMessage(e))
+    NULL
+  },
+  httr2_http_429 = function(e) {
+    message("Rate limited — wait a moment and retry")
+    NULL
+  }
+)
+```

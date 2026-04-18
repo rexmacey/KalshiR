@@ -101,8 +101,13 @@ test_that("print.kalshi_credentials() works without error", {
   on.exit(unlink(key_file))
 
   creds <- kalshi_auth("test-id", key_file)
-  expect_output(print(creds), "production")
-  expect_output(print(creds), "test-id")
+  # expect_output(print(creds), "production")
+  # expect_output(print(creds), "test-id")
+  # cli writes to the message stream, not stdout
+  msg <- testthat::capture_messages(print(creds))
+  full_output <- paste(msg, collapse = "")
+  expect_match(full_output, "production", fixed = TRUE)
+  expect_match(full_output, "test-id",    fixed = TRUE)
 })
 
 test_that("kalshi_sign() produces a base64 string", {

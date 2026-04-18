@@ -4,20 +4,14 @@
 #' Functions for loading your Kalshi private key and signing authenticated
 #' requests using RSA-PSS with SHA-256, as required by the Kalshi API.
 #'
-#' Kalshi uses asymmetric key authentication. You generate an API key pair in
-#' your Kalshi account settings; the private key (a `.key` PEM file) is used
-#' to sign each request, and the API Key ID is sent as a header so Kalshi can
-#' verify the signature.
-#'
 #' The typical workflow is:
-#' 1. Call [kalshi_auth()] once at the top of your session to create a
+#' 1. Call `kalshi_auth()` once at the top of your session to create a
 #'    credentials object.
 #' 2. Pass that object to any function that calls authenticated endpoints
 #'    (portfolio, orders, etc.).
 #'
 #' @name auth
 NULL
-
 
 # ---------------------------------------------------------------------------
 # Internal package environment — stores the active credentials so users
@@ -93,8 +87,8 @@ kalshi_auth <- function(api_key_id,
 
   # -- Resolve base URL ------------------------------------------------------
   base_url <- switch(env,
-    production = "https://api.elections.kalshi.com/trade-api/v2",
-    demo       = "https://demo-api.kalshi.co/trade-api/v2"
+    production = .kalshi_config$prod_url,
+    demo       = .kalshi_config$demo_url
   )
 
   structure(
@@ -203,7 +197,7 @@ kalshi_sign <- function(private_key, timestamp_ms, method, path) {
   )
 
   # Kalshi expects a standard base64-encoded string (not URL-safe)
-  base64enc::base64encode(signature_raw)
+  openssl::base64_encode(signature_raw)
 }
 
 

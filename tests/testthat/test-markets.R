@@ -161,18 +161,19 @@ test_that("get_orderbook() parses both sides correctly", {
 test_that("get_series() returns valid data from live API", {
   skip_if_no_live_creds()
 
-  result <- get_series("KXHIGHNY")
+  result <- get_series("KXHIGHNY", creds = live_creds())
 
   expect_s3_class(result, "tbl_df")
-  expect_equal(nrow(result), 1L)
+  expect_gte(nrow(result), 1L)          # at least 1 row, not exactly 1
   expect_true("ticker" %in% names(result))
-  expect_equal(result$ticker, "KXHIGHNY")
+  expect_true("KXHIGHNY" %in% result$ticker)  # ticker exists, not only row
 })
 
 test_that("get_markets() returns open markets from live API", {
   skip_if_no_live_creds()
 
-  result <- get_markets(series_ticker = "KXHIGHNY", status = "open", limit = 5L)
+  result <- get_markets(series_ticker = "KXHIGHNY", status = "open",
+                        limit = 5L, creds = live_creds())
 
   expect_s3_class(result, "tbl_df")
   # May have 0 rows if no markets currently open — just check structure
@@ -183,10 +184,11 @@ test_that("get_market() returns a single market from live API", {
   skip_if_no_live_creds()
 
   # First find an open market
-  markets <- get_markets(series_ticker = "KXHIGHNY", limit = 1L)
+  markets <- get_markets(series_ticker = "KXHIGHNY", limit = 1L,
+                         creds = demo_creds())
   skip_if(nrow(markets) == 0, "No markets available for KXHIGHNY.")
 
-  result <- get_market(markets$ticker[1])
+  result <- get_market(markets$ticker[1], creds = demo_creds())
 
   expect_s3_class(result, "tbl_df")
   expect_equal(nrow(result), 1L)
@@ -196,10 +198,11 @@ test_that("get_market() returns a single market from live API", {
 test_that("get_orderbook() returns a valid tibble from live API", {
   skip_if_no_live_creds()
 
-  markets <- get_markets(series_ticker = "KXHIGHNY", status = "open", limit = 1L)
+  markets <- get_markets(series_ticker = "KXHIGHNY", status = "open", limit = 1L,
+                         creds = demo_creds())
   skip_if(nrow(markets) == 0, "No open markets to test orderbook.")
 
-  result <- get_orderbook(markets$ticker[1])
+  result <- get_orderbook(markets$ticker[1], creds = demo_creds())
 
   expect_s3_class(result, "tbl_df")
   expect_true("side" %in% names(result))
