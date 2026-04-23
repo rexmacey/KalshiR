@@ -102,7 +102,7 @@ get_historical_markets <- function(event_ticker  = NULL,
                             list_key = "markets", creds = creds)
   } else {
     if (!is.null(cursor)) params$cursor <- cursor
-    resp <- kalshi_get("/historical/markets", query = params, creds = creds)
+    resp <- kalshi_get("/historical/markets", params = params, creds = creds)
     rows <- resp[["markets"]] %||% list()
   }
 
@@ -231,7 +231,7 @@ get_historical_candlesticks <- function(series_ticker,
     period_interval = as.integer(period_interval)
   )
 
-  resp  <- kalshi_get(path, query = params, creds = creds)
+  resp  <- kalshi_get(path, params = params, creds = creds)
   rows  <- resp[["candlesticks"]] %||% list()
 
   .parse_candlesticks(rows)
@@ -324,7 +324,7 @@ get_historical_fills <- function(ticker    = NULL,
                             list_key = "fills", creds = creds)
   } else {
     if (!is.null(cursor)) params$cursor <- cursor
-    resp <- kalshi_get("/historical/portfolio/fills", query = params, creds = creds)
+    resp <- kalshi_get("/historical/portfolio/fills", params = params, creds = creds)
     rows <- resp[["fills"]] %||% list()
   }
 
@@ -388,7 +388,7 @@ get_historical_orders <- function(ticker       = NULL,
   } else {
     if (!is.null(cursor)) params$cursor <- cursor
     resp <- kalshi_get("/historical/portfolio/orders",
-                       query = params, creds = creds)
+                       params = params, creds = creds)
     rows <- resp[["orders"]] %||% list()
   }
 
@@ -459,7 +459,7 @@ get_historical_trades <- function(ticker,
   } else {
     if (!is.null(cursor)) params$cursor <- cursor
     resp <- kalshi_get("/historical/markets/trades",
-                       query = params, creds = creds)
+                       params = params, creds = creds)
     rows <- resp[["trades"]] %||% list()
   }
 

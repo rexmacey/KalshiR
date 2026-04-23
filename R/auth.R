@@ -75,15 +75,17 @@ kalshi_auth <- function(api_key_id,
   }
 
   # -- Load the PEM private key ----------------------------------------------
-  private_key <- tryCatch(
-    openssl::read_key(private_key_path),
-    error = function(e) {
-      cli::cli_abort(c(
-        "Failed to load private key from {.path {private_key_path}}.",
-        "x" = conditionMessage(e)
-      ))
-    }
-  )
+  py <- get_py()
+  private_key <- py$load_private_key(private_key_path)
+  # private_key <- tryCatch(
+  #   openssl::read_key(private_key_path),
+  #   error = function(e) {
+  #     cli::cli_abort(c(
+  #       "Failed to load private key from {.path {private_key_path}}.",
+  #       "x" = conditionMessage(e)
+  #     ))
+  #   }
+  # )
 
   # -- Resolve base URL ------------------------------------------------------
   base_url <- switch(env,

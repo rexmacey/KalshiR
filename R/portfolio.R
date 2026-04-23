@@ -37,15 +37,15 @@ get_balance <- function(creds = NULL) {
 
   resp <- kalshi_get("/portfolio/balance", creds = creds)
 
-  bal <- resp[["balance"]]
+  # bal <- resp[["balance"]]
 
   tibble::tibble(
-    balance        = cents_to_dollars(bal[["available_balance_cents"]] %||%
-                                        bal[["balance"]] %||% 0L),
-    portfolio_value = cents_to_dollars(bal[["portfolio_value_cents"]] %||%
-                                         bal[["portfolio_value"]] %||% 0L),
-    bonus_balance  = cents_to_dollars(bal[["bonus_balance_cents"]] %||%
-                                        bal[["bonus_balance"]] %||% 0L),
+    balance        = cents_to_dollars(resp[["available_balance_cents"]] %||%
+                                        resp[["balance"]] %||% 0L),
+    portfolio_value = cents_to_dollars(resp[["portfolio_value_cents"]] %||%
+                                         resp[["portfolio_value"]] %||% 0L),
+    bonus_balance  = cents_to_dollars(resp[["bonus_balance_cents"]] %||%
+                                        resp[["bonus_balance"]] %||% 0L),
     total_value    = balance + portfolio_value
   )
 }
@@ -103,7 +103,7 @@ get_positions <- function(limit     = 100L,
     )
   } else {
     if (!is.null(cursor)) params$cursor <- cursor
-    resp <- kalshi_get("/portfolio/positions", query = params, creds = creds)
+    resp <- kalshi_get("/portfolio/positions", params = params, creds = creds)
     rows <- resp[["market_positions"]] %||% list()
   }
 
@@ -205,7 +205,7 @@ get_fills <- function(ticker    = NULL,
                             list_key = "fills", creds = creds)
   } else {
     if (!is.null(cursor)) params$cursor <- cursor
-    resp <- kalshi_get("/portfolio/fills", query = params, creds = creds)
+    resp <- kalshi_get("/portfolio/fills", params = params, creds = creds)
     rows <- resp[["fills"]] %||% list()
   }
 
@@ -290,7 +290,7 @@ get_settlements <- function(limit     = 100L,
                             list_key = "settlements", creds = creds)
   } else {
     if (!is.null(cursor)) params$cursor <- cursor
-    resp <- kalshi_get("/portfolio/settlements", query = params, creds = creds)
+    resp <- kalshi_get("/portfolio/settlements", params = params, creds = creds)
     rows <- resp[["settlements"]] %||% list()
   }
 

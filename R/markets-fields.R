@@ -1,0 +1,58 @@
+#' Kalshi Market Fields Glossary
+#'
+#' This help topic documents all fields returned by the Kalshi `/markets` endpoint.
+#'
+#' @format A list of field definitions.
+#'
+#' @details
+#' \describe{
+#'   \item{can_close_early}{Whether the market may close early based on early_close_condition.}
+#'   \item{close_time}{Scheduled time when trading stops.}
+#'   \item{created_time}{Timestamp when the market was created.}
+#'   \item{early_close_condition}{Condition that triggers early closure.}
+#'   \item{event_ticker}{Identifier of the parent event.}
+#'   \item{expected_expiration_time}{Expected expiration time based on current information.}
+#'   \item{expiration_time}{Official expiration time.}
+#'   \item{expiration_value}{Numeric settlement value or resolved outcome.}
+#'   \item{fractional_trading_enabled}{Whether fractional contracts are allowed.}
+#'   \item{last_price_dollars}{Most recent traded price.}
+#'   \item{latest_expiration_time}{Latest possible expiration time.}
+#'   \item{liquidity_dollars}{Liquidity estimate for the market.}
+#'   \item{market_type}{Type of market (binary, scalar, etc.).}
+#'   \item{no_ask_dollars}{Best ask price for “No”.}
+#'   \item{no_bid_dollars}{Best bid price for “No”.}
+#'   \item{no_sub_title}{Additional descriptive text for “No”.}
+#'   \item{notional_value_dollars}{Total notional value traded historically.}
+#'   \item{occurrence_datetime}{Datetime of the underlying event.}
+#'   \item{open_interest_fp}{Open interest (fixed‑point).}
+#'   \item{open_time}{When the market opened for trading.}
+#'   \item{previous_price_dollars}{Last traded price from previous session.}
+#'   \item{previous_yes_ask_dollars}{Previous session’s best “Yes” ask.}
+#'   \item{previous_yes_bid_dollars}{Previous session’s best “Yes” bid.}
+#'   \item{price_level_structure}{Structure of price levels.}
+#'   \item{price_ranges}{Allowed price ranges or buckets.}
+#'   \item{response_price_units}{Unit scaling for returned prices.}
+#'   \item{result}{Resolved outcome.}
+#'   \item{rules_primary}{Primary market rules.}
+#'   \item{rules_secondary}{Additional rules.}
+#'   \item{settlement_timer_seconds}{Time until settlement finalization.}
+#'   \item{status}{Market status (open, closed, settled, etc.).}
+#'   \item{tick_size}{Minimum price increment.}
+#'   \item{ticker}{Unique market identifier.}
+#'   \item{title}{Human‑readable market title.}
+#'   \item{updated_time}{Timestamp of last update.}
+#'   \item{volume_24h_fp}{24‑hour trading volume (fixed‑point).}
+#'   \item{volume_fp}{Total historical trading volume (fixed‑point).}
+#'   \item{yes_ask_dollars}{Best ask price for “Yes”.}
+#'   \item{yes_ask_size_fp}{Size at best “Yes” ask (fixed‑point).}
+#'   \item{yes_bid_dollars}{Best bid price for “Yes”.}
+#'   \item{yes_bid_size_fp}{Size at best “Yes” bid (fixed‑point).}
+#'   \item{yes_sub_title}{Additional descriptive text for “Yes”.}
+#'   \item{custom_strike}{Custom strike value.}
+#'   \item{floor_strike}{Minimum strike value.}
+#'   \item{primary_participant_key}{Identifier for primary participant.}
+#'   \item{strike_type}{Type of strike (fixed, floating, custom).}
+#' }
+#'
+#' @name kalshi_markets_fields
+NULL

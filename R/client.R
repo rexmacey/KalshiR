@@ -11,7 +11,6 @@
 # ---------------------------------------------------------------------------
 # Public request functions
 # ---------------------------------------------------------------------------
-
 #' Perform an authenticated GET request
 #'
 #' @param endpoint Character. API path beginning with `/`, e.g. `"/markets"`.
@@ -147,40 +146,110 @@ kalshi_handle_response <- function(resp) {
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-# Build a signed httr2 request for a given endpoint and HTTP method.
+# new
+#' Build a signed httr2 request for a given endpoint and HTTP method.
+#' @keywords internal
 .build_request <- function(endpoint, method, creds) {
-  #base_url <- if (creds$demo) KALSHI_DEMO_URL else KALSHI_PROD_URL
   base_url <- creds$base_url
   url      <- paste0(base_url, endpoint)
 
-  # Strip the /trade-api/v2 prefix for the signature path
-  sig_path <- paste0("/trade-api/v2", endpoint)
+  # Full path used for signing (strip query params if present)
+  sig_path <- paste0("/trade-api/v2", strsplit(endpoint, "\\?")[[1]][1])
 
-  headers  <- kalshi_auth_headers(
-    creds    = creds,
-    method   = method,
-    path = sig_path
+  # Generate timestamp in milliseconds (as character string)
+  timestamp <- as.character(floor(as.numeric(Sys.time()) * 1000))
+
+  # Use Python create_signature via reticulate
+  signature <- .kalshi_sign(
+    private_key = creds$private_key,  # Python private key object loaded via load_private_key
+    timestamp   = timestamp,
+    method      = method,
+    path        = sig_path
   )
 
   req <- httr2::request(url)
   req <- httr2::req_method(req, method)
   req <- httr2::req_headers(
     req,
-    "KALSHI-ACCESS-KEY"       = headers[["KALSHI-ACCESS-KEY"]],
-    "KALSHI-ACCESS-TIMESTAMP" = headers[["KALSHI-ACCESS-TIMESTAMP"]],
-    "KALSHI-ACCESS-SIGNATURE" = headers[["KALSHI-ACCESS-SIGNATURE"]],
+    "KALSHI-ACCESS-KEY"       = creds$api_key_id,
+    "KALSHI-ACCESS-TIMESTAMP" = timestamp,
+    "KALSHI-ACCESS-SIGNATURE" = signature,
     "Content-Type"            = "application/json",
     "Accept"                  = "application/json"
   )
 
   # Retry on 429 (rate-limit) and transient 5xx once before giving up
-  req <- httr2::req_retry(req,
-                          max_tries = 3L,
-                          is_transient = function(resp) {
-                            httr2::resp_status(resp) %in% c(429L, 500L, 502L, 503L, 504L)
-                          }
+  req <- httr2::req_retry(
+    req,
+    max_tries    = 3L,
+    is_transient = function(resp) {
+      httr2::resp_status(resp) %in% c(429L, 500L, 502L, 503L, 504L)
+    }
   )
 
   req
 }
+# old
+# Build a signed httr2 request for a given endpoint and HTTP method.
+# .build_request <- function(endpoint, method, creds) {
+  #base_url <- if (creds$demo) KALSHI_DEMO_URL else KALSHI_PROD_URL
+#   base_url <- creds$base_url
+#   url      <- paste0(base_url, endpoint)
+#
+#   # Strip the /trade-api/v2 prefix for the signature path
+#   sig_path <- paste0("/trade-api/v2", endpoint)
+#
+#   headers  <- kalshi_auth_headers(
+#     creds    = creds,
+#     method   = method,
+#     path = sig_path
+#   )
+#
+#   req <- httr2::request(url)
+#   req <- httr2::req_method(req, method)
+#   req <- httr2::req_headers(
+#     req,
+#     "KALSHI-ACCESS-KEY"       = headers[["KALSHI-ACCESS-KEY"]],
+#     "KALSHI-ACCESS-TIMESTAMP" = headers[["KALSHI-ACCESS-TIMESTAMP"]],
+#     "KALSHI-ACCESS-SIGNATURE" = headers[["KALSHI-ACCESS-SIGNATURE"]],
+#     "Content-Type"            = "application/json",
+#     "Accept"                  = "application/json"
+#   )
+#
+#   # Retry on 429 (rate-limit) and transient 5xx once before giving up
+#   req <- httr2::req_retry(req,
+#                           max_tries = 3L,
+#                           is_transient = function(resp) {
+#                             httr2::resp_status(resp) %in% c(429L, 500L, 502L, 503L, 504L)
+#                           }
+#   )
+#
+#   req
+# }
+
+#' Call the Python create_signature function via reticulate
+#'
+#' @param private_key A Python private key object (loaded via reticulate /
+#'   Python's cryptography library).
+#' @param timestamp Character. Millisecond timestamp as a string.
+#' @param method Character. HTTP method, e.g. "GET".
+#' @param path Character. URL path without query string,
+#'   e.g. "/trade-api/v2/portfolio/balance".
+#'
+#' @return Character. Base64-encoded signature string.
+#' @keywords internal
+.kalshi_sign <- function(private_key, timestamp, method, path) {
+
+  # Ensure Python modules are available (loaded once per session)
+  py_env <- .get_kalshi_py_env()
+
+  signature <- py_env$create_signature(
+    private_key = private_key,
+    timestamp   = timestamp,
+    method      = method,
+    path        = path
+  )
+
+  signature
+}
+

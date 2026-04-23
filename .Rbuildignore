@@ -2,4 +2,6 @@
 ^\.Rproj\.user$
 PROGRESS.md
 README.MD
-
+^dev$
+^\.positai$
+^\.claude$

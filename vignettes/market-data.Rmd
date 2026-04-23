@@ -29,14 +29,18 @@ This vignette covers:
 ## Setup
 
 ```{r auth}
-library(kalshiR)
+# library(kalshiR)
 library(dplyr)
 library(ggplot2)
+py <- get_py()
 
-kalshi_set_auth(kalshi_auth(
-  key_id      = Sys.getenv("KALSHI_KEY_ID"),
-  private_key = Sys.getenv("KALSHI_KEY_PATH")
-))
+env <- "production"
+if (env == "demo") {
+  creds <- kalshi_auth(Sys.getenv("KALSHI_DEMO_API_KEY"), Sys.getenv("KALSHI_DEMO_KEY_PATH"), "demo")
+} else {
+  creds <- kalshi_auth(Sys.getenv("KALSHI_API_KEY"), Sys.getenv("KALSHI_KEY_PATH"), "production")
+}
+kalshi_set_auth(creds)
 ```
 
 ---
@@ -48,6 +52,15 @@ kalshi_set_auth(kalshi_auth(
 ```{r list-markets}
 # First 50 open markets
 markets <- get_markets(status = "open", limit = 50L)
+
+# Access a single row's list-column value
+markets$mve_selected_legs[[1]]   # first market's selected legs
+markets$custom_strike[[3]]       # third market's custom strike
+
+# Unnest if needed
+tidyr::unnest(markets, mve_selected_legs)
+
+
 glimpse(markets)
 ```
 
@@ -68,10 +81,15 @@ glimpse(markets)
 
 ```{r filter-markets}
 # All markets in the INXD series (S&P 500 daily)
-sp500_markets <- get_markets(series_ticker = "INXD", status = "open")
-sp500_markets |>
-  select(ticker, title, yes_bid, yes_ask, volume) |>
-  arrange(desc(volume))
+sp500_markets <- get_markets(series_ticker = "KXQUICKSETTLE", status = "open")
+if (nrow(sp500_markets) > 0) {
+  sp500_markets |>
+  select(ticker, title, yes_bid_dollars, yes_ask_dollars, volume_fp) |>
+  arrange(desc(volume_fp))  
+} else {
+  cat("No markets found with the series_ticker", "kxinxu")
+}
+
 ```
 
 ### Get all pages at once

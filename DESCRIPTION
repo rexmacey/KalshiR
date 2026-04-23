@@ -21,6 +21,13 @@ Imports:
     purrr (>= 1.0.0),
     rlang (>= 1.0.0),
     cli (>= 3.0.0)
+Config/reticulate:
+    list(
+      packages = list(
+        list(package = "requests"),
+        list(package = "cryptography")
+      )
+    )
 Suggests:
     testthat (>= 3.0.0),
     httptest2 (>= 1.0.0),

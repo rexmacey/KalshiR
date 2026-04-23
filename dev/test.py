@@ -28,7 +28,7 @@ def create_signature(private_key, timestamp, method, path):
     )
     return base64.b64encode(signature).decode('utf-8')
 
-def get(private_key, api_key_id, path, base_url=BASE_URL):
+def get(private_key, api_key_id, path, base_url):
     """Make an authenticated GET request to the Kalshi API."""
     timestamp = str(int(datetime.datetime.now().timestamp() * 1000))
     # Signing requires the full URL path from root (e.g. /trade-api/v2/portfolio/balance)

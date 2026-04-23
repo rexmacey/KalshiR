@@ -13,6 +13,8 @@
 #   .to_kalshi_ms()      – convert timestamp to millisecond string for API
 # ─────────────────────────────────────────────────────────────────────────────
 
+# If the left-hand side is NULL, return the right-hand side;
+#   otherwise return the left-hand side.
 #' @importFrom rlang %||%
 #' @export
 rlang::`%||%`
@@ -90,23 +92,47 @@ price_to_prob <- function(price) {
 #' @param ... Additional arguments passed to [dplyr::bind_rows()].
 #' @return A [tibble::tibble()].
 #' @export
-records_to_tibble <- function(records, ...) {
-  if (is.null(records) || length(records) == 0) {
+records_to_tibble <- function(records) {
+  if (length(records) == 0) {
     return(tibble::tibble())
   }
-  # Wrap single records in a list so bind_rows treats them as one row
-  if (is.list(records) && !is.list(records[[1]])) {
-    records <- list(records)
-  }
+
   dplyr::bind_rows(
     purrr::map(records, function(r) {
       # Replace NULL fields with NA so bind_rows doesn't drop the column
       r[vapply(r, is.null, logical(1))] <- NA
+
+      # Wrap any field that is a vector/list with length != 1 into a list
+      # so it becomes a proper list-column instead of causing recycling errors
+      r <- lapply(r, function(field) {
+        if (length(field) != 1) {
+          list(field)  # wrap in list so it occupies exactly one "cell"
+        } else {
+          field
+        }
+      })
+
       tibble::as_tibble(r)
-    }),
-    ...
+    })
   )
 }
+# records_to_tibble <- function(records, ...) {
+#   if (is.null(records) || length(records) == 0) {
+#     return(tibble::tibble())
+#   }
+#   # Wrap single records in a list so bind_rows treats them as one row
+#   if (is.list(records) && !is.list(records[[1]])) {
+#     records <- list(records)
+#   }
+#   dplyr::bind_rows(
+#     purrr::map(records, function(r) {
+#       # Replace NULL fields with NA so bind_rows doesn't drop the column
+#       r[vapply(r, is.null, logical(1))] <- NA
+#       tibble::as_tibble(r)
+#     }),
+#     ...
+#   )
+# }
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -146,4 +172,11 @@ records_to_tibble <- function(records, ...) {
     paste0("Cannot convert object of class '", class(ts)[1], "' to Kalshi ms timestamp."),
     call = NULL
   )
+}
+
+#' @import reticulate
+#' Access the Kalshi Python module
+#' @keywords internal
+get_py <- function() {
+  get("kalshi_py", envir = .kalshi_py_env)
 }
