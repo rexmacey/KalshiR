@@ -194,70 +194,128 @@ get_event <- function(event_ticker, creds = NULL) {
   records_to_tibble(list(event))
 }
 
-
-# ---------------------------------------------------------------------------
-# Markets
-# ---------------------------------------------------------------------------
-
-#' Get a list of markets
+#' Retrieve Markets from the Kalshi API
 #'
-#' Returns individual binary markets, optionally filtered by series, event,
-#' status, category, or ticker prefix.
+#' A backward-compatible and extended version of `get_markets()` that supports
+#' both legacy Kalshi query parameters (e.g., `series_ticker`, `event_ticker`,
+#' `category`) and newer v2 API parameters (e.g., `min_created_ts`,
+#' `max_expiration_ts`, `sort_by`, `sort_direction`).
 #'
-#' @param series_ticker `character(1)` or `NULL`. Filter by series.
-#' @param event_ticker `character(1)` or `NULL`. Filter by event.
-#' @param status `character(1)` or `NULL`. One of `"open"`, `"closed"`,
-#'   `"settled"`.
-#' @param category `character(1)` or `NULL`. Filter by category.
-#' @param tickers `character` or `NULL`. Vector of specific market tickers
-#'   to retrieve (passed as comma-separated string).
-#' @param limit `integer(1)`. Results per page (max 1000). Default 100.
-#' @param all_pages `logical(1)`. Fetch all pages? Default `FALSE`.
-#' @param creds A `kalshi_credentials` object or `NULL`.
+#' This function queries the `/markets` endpoint and returns a tibble of market
+#' metadata. It supports automatic pagination when `all_pages = TRUE`.
 #'
-#' @return A `tibble` with one row per market. Key columns include `ticker`,
-#'   `title`, `status`, `yes_bid`, `yes_ask`, `no_bid`, `no_ask`, `volume`,
-#'   `open_interest`, `close_time`, `expiration_time`.
+#' @section Timestamp Parameters:
+#' Kalshi timestamps are **Unix epoch seconds** (UTC).
+#' For example:
+#' - `as.numeric(Sys.time())` produces a valid timestamp
+#' - `min_created_ts = 0` retrieves all markets created since 1970
+#'
+#' @param series_ticker Character. Optional. Legacy filter for a series ticker
+#'   (e.g., `"INXD"`). Still supported by the API even if not documented.
+#'
+#' @param event_ticker Character. Optional. Filter for an event ticker
+#'   (e.g., `"INX"`, `"CPI"`).
+#'
+#' @param status Character. Optional. Market status. Common values include:
+#'   `"active"`, `"closed"`, `"settled"`.
+#'   (Note: Kalshi uses `"active"` rather than `"open"`.)
+#'
+#' @param category Character. Optional. Market category. Kalshi does not publish
+#'   a canonical list; valid values must be discovered from live data via
+#'   `unique(get_markets(all_pages=TRUE)$category)`.
+#'
+#' @param tickers Character vector. Optional. One or more market tickers. These
+#'   are collapsed into a comma-separated string for the API.
+#'
+#' @param limit Integer. Maximum number of markets to return per page. Defaults
+#'   to 100 (Kalshi's maximum).
+#'
+#' @param all_pages Logical. If TRUE, automatically paginates through all result
+#'   pages using `kalshi_paginate()`.
+#'
+#' @param creds Authentication credentials. Optional. If omitted, the function
+#'   uses credentials stored in `.kalshi_env`.
+#'
+#' @param min_created_ts Numeric. Optional. Minimum market creation timestamp
+#'   (Unix epoch seconds).
+#'
+#' @param max_created_ts Numeric. Optional. Maximum market creation timestamp.
+#'
+#' @param min_expiration_ts Numeric. Optional. Minimum expiration timestamp.
+#'
+#' @param max_expiration_ts Numeric. Optional. Maximum expiration timestamp.
+#'
+#' @param sort_by Character. Optional. Field to sort by. Common values include:
+#'   `"created_time"`, `"expiration_time"`, `"volume"`, `"open_interest"`.
+#'
+#' @param sort_direction Character. Optional. `"asc"` or `"desc"`. Defaults to
+#'   `"asc"` if provided without a value.
+#'
+#' @return A tibble containing market metadata, with numeric fields tidied by
+#'   `tidy_market_tibble()`.
 #'
 #' @examples
 #' \dontrun{
-#' # All open markets for a series
-#' get_markets(series_ticker = "KXHIGHNY", status = "open")
+#'   # Backward-compatible usage
+#'   mkts <- get_markets(status = "active")
 #'
-#' # Specific tickers
-#' get_markets(tickers = c("KXHIGHNY-23NOV07-T60", "KXHIGHNY-23NOV07-T65"))
+#'   # Using new timestamp filters
+#'   mkts <- get_markets(min_created_ts = as.numeric(Sys.time()) - 86400)
+#'
+#'   # Retrieve all markets expiring in the next week
+#'   now <- as.numeric(Sys.time())
+#'   mkts <- get_markets(
+#'     min_expiration_ts = now,
+#'     max_expiration_ts = now + 7*86400
+#'   )
 #' }
 #'
-#' @export
-get_markets <- function(series_ticker = NULL,
-                        event_ticker  = NULL,
-                        status        = NULL,
-                        category      = NULL,
-                        tickers       = NULL,
-                        limit         = 100L,
-                        all_pages     = FALSE,
-                        creds         = NULL) {
+get_markets <- function(
+    series_ticker      = NULL,
+    event_ticker       = NULL,
+    status             = NULL,
+    category           = NULL,
+    tickers            = NULL,
+    limit              = 100L,
+    all_pages          = FALSE,
+    creds              = NULL,
+    min_created_ts     = NULL,
+    max_created_ts     = NULL,
+    min_expiration_ts  = NULL,
+    max_expiration_ts  = NULL,
+    sort_by            = NULL,
+    sort_direction     = NULL
+) {
 
   use_auth <- !is.null(creds) || !is.null(get0("creds", envir = .kalshi_env))
 
-  # tickers can be a vector — API expects comma-separated
   tickers_str <- if (!is.null(tickers)) paste(tickers, collapse = ",") else NULL
 
+  # Build query list including new v2 parameters
   query <- list(
-    series_ticker = series_ticker,
-    event_ticker  = event_ticker,
-    status        = status,
-    category      = category,
-    tickers       = tickers_str,
-    limit         = as.integer(limit)
+    series_ticker      = series_ticker,
+    event_ticker       = event_ticker,
+    status             = status,
+    category           = category,
+    tickers            = tickers_str,
+    limit              = as.integer(limit),
+    min_created_ts     = min_created_ts,
+    max_created_ts     = max_created_ts,
+    min_expiration_ts  = min_expiration_ts,
+    max_expiration_ts  = max_expiration_ts,
+    sort_by            = sort_by,
+    sort_direction     = sort_direction
   )
+
+  # Remove NULLs so we only send parameters the user specified
+  query <- query[!vapply(query, is.null, logical(1))]
 
   if (all_pages) {
     records <- kalshi_paginate(
-      endpoint      = "/markets",
-      list_key    = "markets",
-      params         = query,
-      creds         = creds
+      endpoint   = "/markets",
+      list_key   = "markets",
+      params     = query,
+      creds      = creds
     )
   } else {
     resp    <- kalshi_get("/markets", params = query, creds = creds)
@@ -265,12 +323,12 @@ get_markets <- function(series_ticker = NULL,
   }
 
   tbl <- records_to_tibble(records)
-
-  # Tidy up common numeric fields
   tbl <- tidy_market_tibble(tbl)
 
   tbl
 }
+
+
 
 
 #' Get a single market by ticker

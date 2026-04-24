@@ -180,3 +180,8 @@ records_to_tibble <- function(records) {
 get_py <- function() {
   get("kalshi_py", envir = .kalshi_py_env)
 }
+
+safe_scalar <- function(x, default = NA_real_) {
+  if (length(x) == 0 || is.null(x) || is.na(x)) return(default)
+  x
+}
